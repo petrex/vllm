@@ -841,6 +841,9 @@ class Scheduler:
         infeasible_seq_groups: List[SequenceGroup] = []
 
         swapped_queue = self.swapped
+        if self.scheduler_config.policy == "priority":
+            swapped_queue = deque(sorted(swapped_queue, key=self._get_priority))
+            self.swapped = swapped_queue
 
         leftover_swapped: Deque[SequenceGroup] = deque()
         while swapped_queue:
@@ -917,6 +920,9 @@ class Scheduler:
             budget.add_num_seqs(seq_group.request_id, num_new_seqs)
 
         swapped_queue.extendleft(leftover_swapped)
+        if self.scheduler_config.policy == "priority":
+            swapped_queue = deque(sorted(swapped_queue, key=self._get_priority))
+            self.swapped = swapped_queue
 
         return SchedulerSwappedInOutputs(
             decode_seq_groups=decode_seq_groups,
@@ -971,6 +977,9 @@ class Scheduler:
         """
 
         waiting_queue = self.waiting
+        if self.scheduler_config.policy == "priority":
+            waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
+            self.waiting = waiting_queue
 
         running_queue = deque(sorted(self.running, key=self._get_priority))
 
@@ -1069,6 +1078,9 @@ class Scheduler:
         using_prompt_embeds: bool = False
 
         waiting_queue = self.waiting
+        if self.scheduler_config.policy == "priority":
+            waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
+            self.waiting = waiting_queue
 
         leftover_waiting_sequences: Deque[SequenceGroup] = deque()
         while self._passed_delay(time.time()) and waiting_queue:
@@ -1225,6 +1237,9 @@ class Scheduler:
 
         # Queue requests that couldn't be scheduled.
         waiting_queue.extendleft(leftover_waiting_sequences)
+        if self.scheduler_config.policy == "priority":
+            waiting_queue = deque(sorted(waiting_queue, key=self._get_priority))
+            self.waiting = waiting_queue
         if len(seq_groups) > 0:
             self.prev_prompt = True
 
@@ -1622,6 +1637,7 @@ class Scheduler:
                     pooling_params=seq_group.pooling_params,
                     token_chunk_size=token_chunk_size,
                     lora_request=seq_group.lora_request,
+                    priority=seq_group.priority,
                     computed_block_nums=common_computed_block_nums,
                     encoder_seq_data=encoder_seq_data,
                     cross_block_table=cross_block_table,
