@@ -10,8 +10,8 @@ import torch
 
 import vllm.envs as envs
 from vllm import _custom_ops as ops
-from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
-                                              AttentionLayer,
+from vllm.attention.backends.base import AttentionBackend
+from vllm.attention.backends.abstract import (AttentionImpl, AttentionLayer,
                                               AttentionMetadata, AttentionType)
 from vllm.attention.backends.utils import (CommonAttentionState,
                                            CommonMetadataBuilder)
@@ -107,6 +107,29 @@ class ROCmFlashAttentionBackend(AttentionBackend):
     ) -> None:
         paged_attn = _get_paged_attn_module()
         paged_attn.copy_blocks(kv_caches, src_to_dists)
+
+    @staticmethod
+    def forward(
+        layer: AttentionLayer,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        kv_cache: torch.Tensor,
+        attn_metadata: "ROCmFlashAttentionMetadata",
+        output: Optional[torch.Tensor] = None,
+        output_scale: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Run the forward pass using the backend implementation."""
+        return layer.impl.forward(
+            layer,
+            query,
+            key,
+            value,
+            kv_cache,
+            attn_metadata,
+            output=output,
+            output_scale=output_scale,
+        )
 
 
 @dataclass
