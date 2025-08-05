@@ -1,21 +1,49 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cache
+from importlib import metadata
 from typing import Generator, Optional, Union
 
 import torch
 
 import vllm.envs as envs
-from vllm.attention.backends.abstract import AttentionBackend
+from vllm.attention.backends.base import AttentionBackend
 from vllm.logger import init_logger
 from vllm.platforms import _Backend, current_platform
 from vllm.utils import STR_BACKEND_ENV_VAR, resolve_obj_by_qualname
 
 logger = init_logger(__name__)
+
+
+def _load_external_backends() -> dict[str, str]:
+    backends: dict[str, str] = {}
+    try:
+        for ep in metadata.entry_points().select(group="vllm.attention_backends"):
+            module, _, attr = ep.value.partition(":")
+            qualname = f"{module}.{attr}" if module and attr else ep.value
+            backends[ep.name] = qualname
+    except Exception:
+        pass
+
+    config_path = os.environ.get("VLLM_ATTENTION_BACKENDS_CONFIG")
+    if config_path and os.path.exists(config_path):
+        try:
+            with open(config_path) as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                backends.update({k: v for k, v in data.items() if isinstance(v, str)})
+        except Exception as err:  # pragma: no cover - best effort
+            logger.warning("Failed to load backend config %s: %s", config_path, err)
+
+    return backends
+
+
+_EXTERNAL_BACKENDS = _load_external_backends()
 
 
 def backend_name_to_enum(backend_name: str) -> Optional[_Backend]:
@@ -99,7 +127,11 @@ def is_attn_backend_supported(
 ) -> _IsSupported:
     if isinstance(attn_backend, str):
         try:
-            attn_backend = resolve_obj_by_qualname(attn_backend)
+            if attn_backend in _EXTERNAL_BACKENDS:
+                attn_backend = resolve_obj_by_qualname(
+                    _EXTERNAL_BACKENDS[attn_backend])
+            else:
+                attn_backend = resolve_obj_by_qualname(attn_backend)
         except ImportError:
             if not allow_import_error:
                 raise
@@ -184,6 +216,7 @@ def _cached_get_attn_backend(
     # THIS SELECTION OVERRIDES THE VLLM_ATTENTION_BACKEND
     # ENVIRONMENT VARIABLE.
     selected_backend = None
+    plugin_backend: Optional[str] = None
     backend_by_global_setting: Optional[_Backend] = (
         get_global_forced_attn_backend())
     if backend_by_global_setting is not None:
@@ -192,7 +225,13 @@ def _cached_get_attn_backend(
         # Check the environment variable and override if specified
         backend_by_env_var: Optional[str] = envs.VLLM_ATTENTION_BACKEND
         if backend_by_env_var is not None:
-            selected_backend = backend_name_to_enum(backend_by_env_var)
+            if backend_by_env_var in _EXTERNAL_BACKENDS:
+                plugin_backend = _EXTERNAL_BACKENDS[backend_by_env_var]
+            else:
+                selected_backend = backend_name_to_enum(backend_by_env_var)
+
+    if plugin_backend is not None:
+        return resolve_obj_by_qualname(plugin_backend)
 
     # get device-specific attn_backend
     attention_cls = current_platform.get_attn_backend_cls(

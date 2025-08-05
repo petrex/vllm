@@ -11,8 +11,8 @@ import torch
 from vllm import _custom_ops as ops
 # yapf conflicts with isort for this block
 # yapf: disable
-from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
-                                              AttentionLayer,
+from vllm.attention.backends.base import AttentionBackend
+from vllm.attention.backends.abstract import (AttentionImpl, AttentionLayer,
                                               AttentionMetadata,
                                               AttentionMetadataBuilder,
                                               AttentionType,
@@ -99,6 +99,29 @@ class FlashAttentionBackend(AttentionBackend):
         value_caches = [kv_cache[1] for kv_cache in kv_caches]
 
         ops.copy_blocks(key_caches, value_caches, src_to_dists)
+
+    @staticmethod
+    def forward(
+        layer: AttentionLayer,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        kv_cache: torch.Tensor,
+        attn_metadata: "FlashAttentionMetadata",
+        output: Optional[torch.Tensor] = None,
+        output_scale: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        """Dispatch to the underlying implementation."""
+        return layer.impl.forward(
+            layer,
+            query,
+            key,
+            value,
+            kv_cache,
+            attn_metadata,
+            output=output,
+            output_scale=output_scale,
+        )
 
 
 @dataclass
